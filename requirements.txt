@@ -1,5 +1,7 @@
 streamlit
-pandas
 requests
-snowflake-connector-python
-snowflake-sqlalchemy
+pandas
+openpyxl
+unidecode
+Unidecode
+urllib3
