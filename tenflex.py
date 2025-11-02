@@ -104,6 +104,10 @@ def try_get_players(api_key: str, player_name_like: str):
 
 # ===================== ODDS HELPERS (Bet365) =====================
 def get_bet365_odds_for_match(api_key: str, match_key: int):
+    """
+    Devuelve (home_odds, away_odds) de Bet365 para ganador del partido (Home/Away),
+    o (None, None) si no hay datos. Formato decimal (float).
+    """
     try:
         res = call_api("get_odds", {"APIkey": api_key, "match_key": match_key}) or {}
         m = res.get(str(match_key)) or res.get(int(match_key))
@@ -148,6 +152,10 @@ def list_fixtures(api_key: str, date_start: str, date_stop: str, tz: str, player
     return res
 
 def get_fixture_by_key(api_key: str, match_key: int, tz: str = "Europe/Berlin", center_date: str | None = None, progress_cb=None):
+    """
+    Obtiene el fixture por match_key de forma robusta con get_events y, si no,
+    escaneo por ventanas usando get_fixtures. Admite center_date para acelerar.
+    """
     # 1) Intento directo
     try:
         res = call_api("get_events", {"APIkey": api_key, "event_key": match_key}) or []
@@ -173,7 +181,7 @@ def get_fixture_by_key(api_key: str, match_key: int, tz: str = "Europe/Berlin", 
     RINGS = [14, 28, 56, 112, 200]
 
     steps = 0
-    total_steps = len(RINGS) * 60
+    total_steps = len(RINGS) * 60  # aprox para la barra
     for ring in RINGS:
         start_global = base - timedelta(days=ring)
         stop_global  = base + timedelta(days=10)
@@ -251,12 +259,13 @@ def winrate_60d_and_lastN(matches, player_name_norm: str, N=10, days=60):
 
     sorted_all = sorted(matches, key=lambda x: (x.get("event_date") or "", x.get("event_time") or "00:00"), reverse=True)
     lastN = sorted_all[:N]
-    wrN = (sum(is_win_for_name(m, player_name_norm) for m in lastN) / len(lastN)) if lastN else 0.5
+    wrN = (sum(is_win_for_name(m, player_name_norm) for m in lastN) / len(lastN) ) if lastN else 0.5
 
     last_date = sorted_all[0]["event_date"] if sorted_all else None
     return wr60, wrN, last_date, sorted_all
 
 def compute_momentum(sorted_matches, player_name_norm: str):
+    """+1 si racha >=4 victorias; -1 si racha >=3 derrotas; 0 si neutro."""
     streak = 0
     for m in sorted_matches:
         w = is_win_for_name(m, player_name_norm)
@@ -482,19 +491,19 @@ def compute_from_fixture(api_key: str, meta: dict, surface_hint: str,
 
     # ========= Resultado oficial =========
     event_status = (meta.get("event_status") or "").strip()
-    event_winner_side = meta.get("event_winner")
+    event_winner_side = meta.get("event_winner")  # "First Player" / "Second Player"
     if event_winner_side == "First Player":
         winner_name = api_p1
     elif event_winner_side == "Second Player":
         winner_name = api_p2
     else:
         winner_name = None
-    final_sets_str = (meta.get("event_final_result") or "").strip() or None
+    final_sets_str = (meta.get("event_final_result") or "").strip() or None  # ej. "2 - 1"
 
     # ========= Bet365 odds (Home/Away) =========
     b365_home, b365_away = get_bet365_odds_for_match(api_key, match_key) if match_key else (None, None)
-    bet365_p1 = b365_home
-    bet365_p2 = b365_away
+    bet365_p1 = b365_home   # Home → event_first_player
+    bet365_p2 = b365_away   # Away → event_second_player
 
     out = {
         "match_key": int(match_key) if match_key is not None else None,
@@ -608,6 +617,7 @@ def parse_batch_keys(raw: str):
     for p in parts:
         if p.isdigit():
             keys.append(int(p))
+    # dedup
     seen = set()
     dedup = []
     for k in keys:
@@ -630,9 +640,10 @@ def build_excel_bytes(batch_results: list):
         f2 = feats.get("player2", {})
         diff = feats.get("diff_A_minus_B", {})
 
+        # "Acerto pronostico" basado en momios sintéticos
         odds_p1 = odds.get("player1")
         odds_p2 = odds.get("player2")
-        winner_side = off.get("winner_side")
+        winner_side = off.get("winner_side")  # "First Player" / "Second Player" / None
 
         favored_side = None
         try:
@@ -655,6 +666,7 @@ def build_excel_bytes(batch_results: list):
             "player1": inp.get("player1"),
             "player2": inp.get("player2"),
             "surface_used": inp.get("surface_used"),
+            # Probabilidades / momios sintéticos
             "p_player1": probs.get("player1"),
             "p_player2": probs.get("player2"),
             "odds_player1": odds_p1,
@@ -663,8 +675,10 @@ def build_excel_bytes(batch_results: list):
             "odds_2_1": odds.get("2:1"),
             "odds_1_2": odds.get("1:2"),
             "odds_0_2": odds.get("0:2"),
+            # Cuotas Bet365 (ganador del partido)
             "bet365_player1": b365.get("player1"),
             "bet365_player2": b365.get("player2"),
+            # Features P1
             "p1_wr60": f1.get("wr60"),
             "p1_wr10": f1.get("wr10"),
             "p1_h2h": f1.get("h2h"),
@@ -673,6 +687,7 @@ def build_excel_bytes(batch_results: list):
             "p1_elo": f1.get("elo_synth"),
             "p1_momentum": f1.get("momentum"),
             "p1_travel": f1.get("travel_penalty"),
+            # Features P2
             "p2_wr60": f2.get("wr60"),
             "p2_wr10": f2.get("wr10"),
             "p2_h2h": f2.get("h2h"),
@@ -681,6 +696,7 @@ def build_excel_bytes(batch_results: list):
             "p2_elo": f2.get("elo_synth"),
             "p2_momentum": f2.get("momentum"),
             "p2_travel": f2.get("travel_penalty"),
+            # Diffs
             "diff_wr60": diff.get("wr60"),
             "diff_wr10": diff.get("wr10"),
             "diff_h2h": diff.get("h2h"),
@@ -689,9 +705,11 @@ def build_excel_bytes(batch_results: list):
             "diff_elo": diff.get("elo"),
             "diff_momentum": diff.get("momentum"),
             "diff_travel": diff.get("travel"),
+            # Resultado oficial
             "status": off.get("status"),
             "winner_name": off.get("winner_name"),
             "final_sets": off.get("final_sets"),
+            # Campo nuevo
             "Acerto pronostico": acerto,
         }
         rows.append(row)
@@ -778,6 +796,7 @@ with tab1:
                 st.subheader("Resultado (JSON)")
                 st.json(result, expanded=False)
 
+                # Vista rápida de cuotas/probabilidades
                 probs = result.get("probabilities", {}).get("match", {})
                 odds = result.get("synthetic_odds_decimal", {})
                 b365 = result.get("bet365_odds_decimal", {})
@@ -796,6 +815,7 @@ with tab1:
                     st.write("Oficial:")
                     st.write(result.get("official_result", {}))
 
+                # Guardar en sesión por si lo quieres exportar luego
                 st.session_state["last_result_single"] = result
             except Exception as e:
                 st.error(str(e))
@@ -845,13 +865,19 @@ with tab2:
                 st.session_state["last_results_batch"] = results
                 st.success(f"Lote finalizado. Éxitos: {len(results)} — Errores: {len(errors)}")
 
+                # Vista y descarga
                 if results:
                     xls_bytes, df = build_excel_bytes(results)
                     st.dataframe(df, use_container_width=True)
+
+                    # ========= NOMBRE DEL ARCHIVO CON FECHA ESTIMADA =========
+                    fname_date = (center_date_batch or datetime.utcnow().strftime("%Y-%m-%d")).replace("/", "-")
+                    file_name = f"momios_sinteticos_batch_{fname_date}.xlsx"
+
                     export_placeholder.download_button(
                         "⬇️ Descargar Excel (lote)",
                         data=xls_bytes.getvalue(),
-                        file_name="momios_sinteticos_batch.xlsx",
+                        file_name=file_name,  # usa la fecha estimada si existe
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
@@ -921,8 +947,5 @@ with tab3:
                         st.write(errors)
 
 # ===================== NOTAS =====================
-st.caption(
-    "Tip: en Streamlit Cloud, añade un archivo 'requirements.txt' con: "
-    "streamlit, requests, pandas, openpyxl, unidecode, urllib3. "
-    "Para usar Secrets, ve a Settings → Secrets y agrega API_TENNIS_KEY."
-)
+st.caption("Tip: en Streamlit Cloud, añade un archivo 'requirements.txt' con: streamlit, requests, pandas, openpyxl, unidecode, urllib3. "
+           "Para usar Secrets, ve a Settings → Secrets y agrega API_TENNIS_KEY.")
