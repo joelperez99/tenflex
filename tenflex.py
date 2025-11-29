@@ -364,7 +364,7 @@ def compute_momentum(sorted_matches, player_name_norm: str):
         if w:
             streak = +1 if streak < 0 else streak + 1
         else:
-            streak = -1 if streak > 0 else streak - 1
+            streak = -1 if streak > 0 else -1 if streak < 0 else -1
         if streak >= 4:
             return +1
         if streak <= -3:
@@ -1105,12 +1105,13 @@ def main():
 
         st.markdown("---")
         st.subheader("Pesos del modelo")
-        w_wr60 = st.slider("wr60 (forma 60 días)", 0.0, 1.0, 0.30, 0.01)
-        w_wr10 = st.slider("wr10 (últimos 10)", 0.0, 1.0, 0.20, 0.01)
-        w_h2h = st.slider("h2h", 0.0, 1.0, 0.15, 0.01)
-        w_rest = st.slider("rest (descanso)", 0.0, 1.0, 0.05, 0.01)
-        w_surf = st.slider("surface", 0.0, 1.0, 0.15, 0.01)
-        w_elo = st.slider("elo sintético", 0.0, 1.0, 0.10, 0.01)
+        # Valores por default ajustados a los de tu captura:
+        w_wr60 = st.slider("wr60 (forma 60 días)", 0.0, 1.0, 0.12, 0.01)
+        w_wr10 = st.slider("wr10 (últimos 10)", 0.0, 1.0, 0.33, 0.01)
+        w_h2h = st.slider("h2h", 0.0, 1.0, 0.01, 0.01)
+        w_rest = st.slider("rest (descanso)", 0.0, 1.0, 0.19, 0.01)
+        w_surf = st.slider("surface", 0.0, 1.0, 0.00, 0.01)
+        w_elo = st.slider("elo sintético", 0.0, 1.0, 0.31, 0.01)
         w_mom = st.slider("momentum", 0.0, 1.0, 0.05, 0.01)
         w_trav = st.slider("travel (malus)", 0.0, 1.0, 0.00, 0.01)
 
@@ -1136,8 +1137,7 @@ def main():
                 st.warning("Primero sube un archivo de Excel.")
             else:
                 recommended = calibrar_pesos_desde_excel(calib_file, weights)
-                # Solo mostramos; si quieres que se actualicen sliders automáticamente
-                # habría que usar session_state para re-render, lo dejamos simple.
+                # Solo mostramos; para actualizar sliders habría que usar session_state.
 
     if not api_key:
         st.warning("⚠️ Escribe tu API Key en la barra lateral para poder usar la app.")
@@ -1193,7 +1193,6 @@ def main():
                     st.error(f"Error en cálculo individual: {e}")
 
     # --------- TAB BATCH ---------
-    batch_results = None
     with tab_batch:
         st.markdown(
             "Pega múltiples `match_key` (uno por línea, separados por espacios o comas)."
